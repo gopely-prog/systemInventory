@@ -4,6 +4,13 @@ from st_keyup import st_keyup
 
 st.set_page_config(page_title="Cuadre de Licorería", layout="wide", initial_sidebar_state="collapsed")
 
+# Inicializar almacenamiento persistente para evitar que los conteos se borren al filtrar
+if 'conteos_guardados' not in st.session_state:
+    st.session_state['conteos_guardados'] = {}
+
+def guardar_conteo(id_prod, key):
+    st.session_state['conteos_guardados'][id_prod] = st.session_state[key]
+
 # Optimizaciones CSS específicas para iPhone 14 Pro / Safari
 st.markdown("""
 <style>
@@ -115,13 +122,19 @@ if archivo_subido:
                         st.subheader(f"{nombre}")
                         st.write(f"**Stock Semana Anterior:** {stock_ant}")
                         
+                        # Recuperar valor guardado o iniciar en 0
+                        valor_guardado = st.session_state['conteos_guardados'].get(id_unico, 0)
+                        
                         # Campo numérico para el stock contado
                         key_input = f"stock_{id_unico}"
                         nuevo_stock = st.number_input(
                             "Stock que voy a contar:", 
                             min_value=0, 
                             step=1, 
-                            key=key_input
+                            value=valor_guardado,
+                            key=key_input,
+                            on_change=guardar_conteo,
+                            args=(id_unico, key_input)
                         )
                         
                         # Mostrar alerta de diferencia en tiempo real
