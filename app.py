@@ -40,13 +40,13 @@ st.title("📦 Cuadre de Inventario")
 archivo_subido = st.file_uploader("Sube el reporte de stock (Excel)", type=["xlsx", "xls"])
 
 if archivo_subido:
-    # 2. Leer los datos (Solo nos importan la columna B y E del Excel)
+    # 2. Leer los datos
     try:
-        # Columna B es índice 'B', Columna E es índice 'E'
-        df = pd.read_excel(archivo_subido, usecols="B,E")
-        df.columns = ["Producto", "Stock Anterior"]
+        # Columna A (código), Columna B (producto), Columna E (stock)
+        df = pd.read_excel(archivo_subido, usecols="A,B,E")
+        df.columns = ["Codigo", "Producto", "Stock Anterior"]
     except Exception as e:
-        st.error(f"Error al leer el Excel. Verifica que tenga columnas B y E. Detalle: {e}")
+        st.error(f"Error al leer el Excel. Verifica que tenga columnas A, B y E. Detalle: {e}")
         st.stop()
         
     # Limpieza básica
@@ -54,7 +54,11 @@ if archivo_subido:
     df['Producto'] = df['Producto'].astype(str).str.strip()
     df = df[df['Producto'] != ""] # Omitir espacios en blanco/vacíos
     
-    # Omitir categorías / familias de productos
+    # Filtrar solo las filas que tengan un valor numérico en 'Codigo' (Columna A)
+    df['Codigo'] = pd.to_numeric(df['Codigo'], errors='coerce')
+    df = df.dropna(subset=['Codigo'])
+    
+    # Omitir categorías / familias de productos por si acaso
     categorias_excluidas = [
         "abarrotes", "aguas", "aseo personal", "bazares", "cervezas", 
         "comida", "condimentos", "embutidos", "energizantes", "gaseosas", 
@@ -69,14 +73,32 @@ if archivo_subido:
     # Agregamos un ID único por fila para que cada caja de Streamlit mantenga su estado al filtrar
     df = df.reset_index(names=['ID_Unico'])
     
+    # Calcular el estado de cada producto
+    def calcular_estado(row):
+        id_unico = row['ID_Unico']
+        stock_ant = row['Stock Anterior']
+        nuevo_stock = st.session_state['conteos_guardados'].get(id_unico, 0)
+        diff = nuevo_stock - stock_ant
+        if nuevo_stock > 0 or diff != 0:
+            if diff == 0:
+                return "Cuadro"
+            elif diff > 0:
+                return "Sobro"
+            else:
+                return "Falto"
+        else:
+            return "Nulo"
+
+    df['Estado'] = df.apply(calcular_estado, axis=1)
+    
     st.divider()
     
     # 3. Filtros
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         # Búsqueda por nombre en tiempo real (mientras escribes)
-        busqueda = st_keyup("🔍 Buscar por nombre del producto:")
+        busqueda = st_keyup("🔍 Buscar por nombre:")
         
     # Aplicar el filtro de búsqueda PRIMERO
     if busqueda:
@@ -90,14 +112,25 @@ if archivo_subido:
         # Filtrado por cantidad muestra SOLO las cantidades de la búsqueda actual
         cantidades_unicas = sorted(df_filtrado['Stock Anterior'].unique())
         filtro_cantidad = st.multiselect(
-            "📊 Filtrar por cantidad (Stock de la semana anterior):", 
+            "📊 Filtrar por cantidad:", 
             options=cantidades_unicas,
             default=[] # Vacío = muestra todos
+        )
+        
+    with col3:
+        filtro_estado = st.multiselect(
+            "🏷️ Filtrar por Estado:",
+            options=["Cuadro", "Sobro", "Falto", "Nulo"],
+            default=[]
         )
         
     if filtro_cantidad:
         # Si el usuario selecciona cantidades, filtramos por ellas
         df_filtrado = df_filtrado[df_filtrado['Stock Anterior'].isin(filtro_cantidad)]
+        
+    if filtro_estado:
+        # Si el usuario selecciona estados, filtramos por ellos
+        df_filtrado = df_filtrado[df_filtrado['Estado'].isin(filtro_estado)]
         
     st.write(f"Mostrando **{len(df_filtrado)}** productos.")
     st.write("---")
@@ -112,6 +145,7 @@ if archivo_subido:
         for j, col in enumerate(cols):
             if i + j < len(productos):
                 prod = productos[i + j]
+                codigo = int(prod['Codigo'])
                 nombre = prod['Producto']
                 stock_ant = prod['Stock Anterior']
                 id_unico = prod['ID_Unico']
@@ -119,7 +153,7 @@ if archivo_subido:
                 with col:
                     # Contenedor con borde que actúa como caja del producto
                     with st.container(border=True):
-                        st.subheader(f"{nombre}")
+                        st.subheader(f"{codigo} - {nombre}")
                         st.write(f"**Stock Semana Anterior:** {stock_ant}")
                         
                         # Recuperar valor guardado o iniciar en 0
